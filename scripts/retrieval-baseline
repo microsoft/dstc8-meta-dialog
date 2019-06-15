@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+import os
+import click
+import json
+import logging
+import torch
+
+from mldc.util import NLGEvalOutput, overwrite_param
+from mldc.task import RetrievalTask
+from zipfile import ZipFile
+
+from pytext.config.component import register_tasks
+from pytext.config.serialize import parse_config
+from pytext.main import gen_config_impl, train_model, load
+from tensorboardX import SummaryWriter
+from textwrap import TextWrapper
+
+
+LOG = logging.getLogger("mldc")
+
+
+def exp_dir(basename=None):
+  path = os.environ.get('MLDC_OUTPUT_DIR', 'exp/debug')
+  os.makedirs(path, exist_ok=True)
+  if basename is None:
+    return path
+  return os.path.join(path, basename)
+
+
+@click.group()
+def cli():
+  pass
+
+
+def output_dir_option(f):
+  def callback(ctx, param, value):
+    os.environ['MLDC_OUTPUT_DIR'] = value
+    return value
+  return click.option('--output-dir', type=click.Path(file_okay=False), expose_value=False,
+                      default=lambda: os.environ.get('MLDC_OUTPUT_DIR', "exp/debug"),
+                      help="write outputs to this directory", callback=callback)(f)
+
+
+@cli.command('train')
+@click.argument('zipfile')
+@click.argument('options', nargs=-1, type=click.UNPROCESSED)
+@click.option('-p', '--preproc-dir', default='data', type=click.Path(dir_okay=True, file_okay=False, exists=True),
+              help="directory containing fasttext/sentencepiece models")
+@click.option('--input-embed', type=click.Choice(('SentencepieceFasttextEmbed', 'BERTEmbed')), default="BERTEmbed")
+@click.option('--train-domain', "train_domains", multiple=True, default=[])
+@click.option('--eval-domain', "eval_domains", multiple=True, default=[])
+@click.option('--test-domain', "test_domains", multiple=True, default=[])
+@click.option('-v', '--verbose', is_flag=True)
+@output_dir_option
+def train_retrieval(zipfile, options, preproc_dir, input_embed,
+                    train_domains, eval_domains, test_domains, verbose):
+  """
+  "train" the retrieval model.
+
+  This model doesn't actually need to be trained, the command only serves as a demonstration for
+  how training can be executed.
+  """
+  from mldc.hacks import disable_shared_memory
+  disable_shared_memory()
+  register_tasks(RetrievalTask)
+  options = list(options)
+  if verbose:
+    logging.basicConfig(level=logging.DEBUG)
+  else:
+    logging.basicConfig(level=logging.INFO)
+  logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+  logging.getLogger("pytorch_pretrained_bert.tokenization").setLevel(logging.WARNING)
+
+  if not train_domains:
+    train_domains = set([f for f in ZipFile(zipfile, 'r').namelist() if f.startswith('dialogues/')])
+    if eval_domains:
+      train_domains -= set(eval_domains)
+    if test_domains:
+      train_domains -= set(test_domains)
+    train_domains = list(train_domains)
+
+  cfg = gen_config_impl("RetrievalTask", options)
+  overwrite_param(cfg, 'modules_save_dir', exp_dir())
+  overwrite_param(cfg, 'save_snapshot_path', exp_dir('model.pt'))
+  overwrite_param(cfg, 'save_module_checkpoints', True)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'train_path', zipfile)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'train_domains', train_domains)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'eval_path', zipfile)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'eval_domains', eval_domains)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'test_path', zipfile)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'test_domains', test_domains)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'test_batch_size', 1)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'n_workers', 1)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'max_turns', 2)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'preproc_chunksize', 1000)
+  overwrite_param(cfg['task']['RetrievalTask']['data_handler'], 'all_responses', True)
+  overwrite_param(cfg['task']['RetrievalTask'], 'model_needs_meta_training', False)
+  overwrite_param(cfg['task']['RetrievalTask']['text_embedder'], 'embed_type', input_embed)
+  overwrite_param(cfg['task']['RetrievalTask']['text_embedder'], 'max_pieces', 101)
+  overwrite_param(cfg['task']['RetrievalTask']['text_embedder'], 'preproc_dir', preproc_dir)
+
+  with open(exp_dir('cfg.json'), 'w') as f:
+    json.dump(cfg, f, sort_keys=True, indent=2)
+
+  cfg = parse_config(cfg)
+
+  summary_writer = SummaryWriter(exp_dir('logs')) if cfg.use_tensorboard else None
+  trained_model, best_metric = train_model(cfg, summary_writer=summary_writer)
+
+
+@cli.command('predict')
+@click.argument('model_path', default=exp_dir(),
+                type=click.Path(exists=True, file_okay=False))
+@click.argument('zipfile', type=click.Path(exists=True, dir_okay=False))
+@click.option('--test-domain', "test_domains", multiple=True, default=[])
+@click.option('--test-spec', type=click.Path(dir_okay=False, exists=True))
+@click.option('--nlg-eval-out-dir', type=click.Path(dir_okay=True, file_okay=False))
+def predict_retrieval(model_path, zipfile, test_spec, test_domains, nlg_eval_out_dir):
+  torch.set_printoptions(linewidth=130)
+  register_tasks(RetrievalTask)
+
+  final_model = os.path.join(model_path, 'model.pt')
+
+  if not os.path.exists(final_model):
+    raise RuntimeError(f"No model found in {model_path}!")
+
+  task, _ = load(final_model)
+  if not test_domains:
+    test_domains = task.data_handler.test_domains
+
+  for test_domain in test_domains:
+    with NLGEvalOutput(nlg_eval_out_dir, test_domain) as nlgeval:
+      task.data_handler.test_domains = (test_domain,)
+
+      te = task.data_handler.text_embedder
+
+      def to_words(ids: torch.Tensor):
+        return te.decode_ids_as_text(ids.tolist(), strip_special=True)
+
+      # loop over all results with batch size 1
+      ctxwrap = TextWrapper(130, initial_indent='- ', subsequent_indent=' ' * len('- '))
+      for result in task.predict(zipfile, test_spec):
+        print("--------------------", result['task'], "-----------------")
+        # target batch size is always 1 if spec file is used
+        bidx = 0
+        ids, lens = result['t_inputs'][0][bidx], result['t_inputs'][4][bidx]
+        for inp_idx, (turn, turn_len) in enumerate(zip(ids, lens)):
+          party = ("Wizard", "User  ")[inp_idx % 2]
+          print(ctxwrap.fill(("INPUT     %s: " % party) + to_words(turn[:turn_len])))
+
+        target_ids = result['t_targets'][0][bidx][0]
+        target_lens = result['t_targets'][1][bidx][0]
+        target_text = to_words(target_ids[:target_lens])
+        print(ctxwrap.fill("  TARGET: " + target_text))
+
+        pred_ids = result['resps'][bidx][0]
+        pred_lens = result['resp_lens'][bidx]
+        predict_text = to_words(pred_ids[:pred_lens])
+        print(ctxwrap.fill("  PRED:   " + predict_text))
+        nlgeval.add(target_text, predict_text,
+                    dlg_id=result['t_context']['dlg_id'][bidx],
+                    predict_turn=len(result['t_inputs'][0][0]))
+
+
+if __name__ == '__main__':
+  cli()

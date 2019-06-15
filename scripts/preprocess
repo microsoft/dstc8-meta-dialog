@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+import click
+import fasttext
+import logging
+import os
+import rapidjson as json
+import re
+import sentencepiece
+
+from io import TextIOWrapper
+from zipfile import ZipFile, ZIP_DEFLATED
+
+from mldc.data.schema import MetaDlgDataDialog
+from mldc.preprocessing.normalization import NormalizationError, MetalwozTextNormalizer, RedditTextNormalizer
+from mldc.preprocessing.stream import stream_text
+
+
+@click.group()
+def cli():
+  pass
+
+
+def normalize_zip(srcfp, destfp, normalizer_cls, members=[], token_limit=-1, char_limit=140,
+                  max_token_length=30, lowercase=False):
+
+  logging.info(f"Normalizing turns in the {srcfp}")
+
+  normalizer = normalizer_cls(
+    token_limit=token_limit,
+    char_limit=char_limit,
+    max_token_length=max_token_length
+  )
+
+  ppsrc = ZipFile(srcfp, 'r')
+  ppdest = ZipFile(destfp, 'w', compression=ZIP_DEFLATED)  # , compresslevel=9)  # py3.7 only
+
+  if not members:
+    members = [p for p in ppsrc.namelist() if p.startswith('dialogues')]
+  members = set(members)
+
+  # Copy over non-dialogue members
+  for member in set(ppsrc.namelist()) - members:
+    logging.debug(f"Copying member {member}")
+    member_src = ppsrc.open(member, 'r')
+    member_dest = ppdest.open(member, 'w')
+    member_dest.write(member_src.read())
+    member_src.close()
+    member_dest.close()
+
+  # Normalize all dialogue members
+  for member in members:
+    logging.debug(f"Norming member {member}")
+
+    member_src = TextIOWrapper(ppsrc.open(member, 'r'), encoding='utf-8')
+    member_dest = TextIOWrapper(ppdest.open(member, 'w', force_zip64=True), encoding='utf-8')
+
+    for line in member_src:
+      dlg = MetaDlgDataDialog(**json.loads(line))
+      new_turns = []
+      for t in dlg.turns:
+        try:
+          ppt = normalizer(t)
+          if lowercase:
+            ppt = ppt.lower()
+          new_turns.append(ppt)
+        except NormalizationError as e:
+          logging.warning(f"Bad turn! {str(e)}")
+          break
+
+      if len(new_turns) < 2:
+        continue
+
+      dlg.turns = new_turns
+      member_dest.write(f"{dlg.json()}\n")
+
+    member_src.close()
+    member_dest.close()
+
+  ppsrc.close()
+  ppdest.close()
+
+  logging.info(f"Done normalization. See {destfp}.")
+  return destfp
+
+
+def make_sentence_piece_model(srczip, destfp, members=[], maxlines=5000000, vocab_size=10000):
+  if not members:
+    raise RuntimeError('Not given any zip members for SentencePiece!')
+
+  logging.info('Dumping turn input for SentencePiece model.')
+
+  prefix = re.sub(r'\.model$', '', destfp)
+  text_for_spm = os.path.join(os.path.dirname(destfp), 'for_spm.txt')
+
+  with open(text_for_spm, 'w', encoding='utf-8') as f:
+    for m in members:
+      for turn in stream_text(srczip, m):
+        f.write(turn + '\n')
+
+  maxlines_arg = f"--input_sentence_size={maxlines} --shuffle_input_sentence=true" if maxlines > 0 else ''
+
+  logging.info('Training SentencePiece model...')
+  sentencepiece.SentencePieceTrainer.Train(
+    f"--pad_id=0 --unk_id=1 --bos_id=2 --eos_id=3 --input={text_for_spm} --model_prefix={prefix} --vocab_size={vocab_size} {maxlines_arg}")  # noqa
+
+  logging.info(f"Trained SentencePiece model. See {destfp}.")
+  os.remove(text_for_spm)
+
+  return destfp
+
+
+def make_fasttext_model(srczip, srcspm, destfp, members=[], dim=300):
+  if not members:
+    raise RuntimeError('Not given any zip members for FastText!')
+
+  logging.info('Dumping subwords for FastText model.')
+  text_for_fasttext = os.path.join(os.path.dirname(destfp), 'for_fasttext.txt')
+
+  spm = sentencepiece.SentencePieceProcessor()
+  spm.Load(srcspm)
+
+  with open(text_for_fasttext, 'w', encoding='utf-8') as f:
+    for m in members:
+      for turn in stream_text(srczip, m):
+        pieces = spm.EncodeAsPieces(turn)
+        f.write(' '.join(token for token in pieces))
+
+  logging.info('Training FastText model...')
+  fasttext.skipgram(text_for_fasttext, destfp, dim=dim)
+
+  logging.info(f"Trained FastText model. See {destfp}.")
+  os.remove(text_for_fasttext)
+
+  return destfp
+
+
+def do_pipeline(rawzip, outdir, normalizer_cls, members_for_train=[]):
+  if not members_for_train:
+    raise RuntimeError('Not given any zip members for training!')
+
+  os.makedirs(outdir, exist_ok=True)
+
+  normedzip = os.path.join(outdir, os.path.basename(rawzip).replace('.zip', '-normed.zip'))
+  if not os.path.exists(normedzip):
+    normalize_zip(rawzip, normedzip, normalizer_cls)
+  else:
+    logging.info(f"Found normed zip {normedzip}")
+
+  spmfp = os.path.join(outdir, 'spm.model')
+  if not os.path.exists(spmfp):
+    make_sentence_piece_model(rawzip, spmfp, members_for_train)
+  else:
+    logging.info(f"Found SentencePiece model {spmfp}")
+
+  fasttextfp = os.path.join(outdir, 'fasttext-model')
+  if not os.path.exists(fasttextfp + '.bin'):
+    make_fasttext_model(rawzip, spmfp, fasttextfp, members_for_train)
+  else:
+    logging.info(f"Found FastText model {spmfp}")
+
+  logging.info(f"Done all preprocessing for {rawzip}.")
+
+
+@cli.command('reddit')
+@click.argument('rawzip', type=click.Path(dir_okay=False, file_okay=True, exists=True))
+@click.argument('outdir')
+def reddit(rawzip, outdir):
+  with ZipFile(rawzip, 'r') as zf:
+    members_for_training = [p for p in zf.namelist() if p.startswith('dialogues/training/')]
+  do_pipeline(rawzip, outdir, RedditTextNormalizer, members_for_training)
+
+
+@cli.command('metalwoz')
+@click.argument('rawzip', type=click.Path(dir_okay=False, file_okay=True, exists=True))
+@click.argument('outdir')
+def metalwoz(rawzip, outdir):
+  with ZipFile(rawzip, 'r') as zf:
+    members_for_training = [p for p in zf.namelist() if p.startswith('dialogues')]
+  do_pipeline(rawzip, outdir, MetalwozTextNormalizer, members_for_training)
+
+
+if __name__ == '__main__':
+  logging.basicConfig(level=logging.INFO)
+  cli()
