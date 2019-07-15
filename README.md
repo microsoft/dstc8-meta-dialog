@@ -6,43 +6,9 @@ Competition Info
 --------------
 
 ### [2019-07-12] Our competition host Codalab is experiencing an outage.
+### [2019-07-15] Our competition host Codalab is back online, registrations are open again. Note if you registered before July 15, 2019 you will have to re-register, we apologize for the inconvenience.
 
-Registration and submission are suspended for now while the technical issues are resolved.
-<br/>We will notify participants at **[list@dstc.community](mailto:list@dstc.community)** when we are back online.
-<br/>For other concerns please contact the organizers at **[dstc8-task2@microsoft.com](mailto:dstc8-task2@microsoft.com)**.
-
---------
-
-Details of the DSTC 8 competition can be found on the [challenge homepage](https://sites.google.com/dstc.community/dstc8).
-
-Our specific "Fast Adaptation Task" can be found in the [track proposal](http://workshop.colips.org/dstc7/dstc8/DTSC8_multidomain_task_proposal.pdf).
-
-### Schedule
-
-- June 3, 2019: Registration opens.        
-- June 17, 2019: Competition opens, Reddit and MetaLWOz training data is released, and development
-begins.
-- September 23, 2019: MultiWOz test data is released for participant evaluation.
-- **October 6, 2019: Submissions are due.**
-- October 14, 2019: Objective evaluation results are released.
-- October 21, 2019: Human evaluation results are released.
-- TBA: DSTC8 paper submission deadline.
-- TBA: DSTC8 workshop.
-
-### Organizers
-
-- Hannes Schulz
-- Adam Atkinson
-- Wendy Tay
-- Shikhar Sharma
-- Mahmoud Adada
-- Kaheer Suleman
-
-The organizers can be contacted at **[dstc8-task2@microsoft.com](amilto:dstc8-task2@microsoft.com)**.
-
-### Terms and Conditions
-
-See [Terms and Conditions](https://github.com/microsoft/dstc8-meta-dialog/blob/master/TERMS.md) of the competition.
+Please sign up for the competition on our [CodaLab](https://aka.ms/dstc8-task2) page, which also contains further details on the timeline, organizers, and terms and conditions.
 
 Task Description
 ----------------
