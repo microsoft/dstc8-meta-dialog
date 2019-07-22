@@ -1,7 +1,6 @@
 DSTC8 Meta-Learning User Response Models Task
 ============================================
 
-
 Competition Info
 --------------
 
@@ -9,6 +8,7 @@ Competition Info
 ### [2019-07-15] Our competition host Codalab is back online, registrations are open again. Note if you registered before July 15, 2019 you will have to re-register, we apologize for the inconvenience.
 
 Please sign up for the competition on our [CodaLab](https://aka.ms/dstc8-task2) page, which also contains further details on the timeline, organizers, and terms and conditions.
+
 
 Task Description
 ----------------
@@ -132,10 +132,10 @@ Setup
 -----
 
 1. install conda / anaconda, e.g. via [miniconda](https://conda.io/miniconda.html)
-2. `conda create -n dstc8-baseline python=3.7`
+2. `conda create -n dstc8-baseline python=3.7 cython`
 3. `conda activate dstc8-baseline`
 4. `conda install -c pytorch pytorch`
-5. `python setup.py install -e .`
+5. `pip install -e .`
 
 
 Running
@@ -175,8 +175,8 @@ Use embedding models trained on reddit to avoid train/test overlap.
 Use `--input-embed` to change the embedding type (BERT is default).
 
 ```bash
-./scripts/baseline retrieval train ./pp-metalwoz-dir/metalwoz-v1-normed.zip \
-  --preproc-dir ./pp-reddit-dir --output \
+./scripts/retrieval-baseline train ./pp-metalwoz-dir/metalwoz-v1-normed.zip \
+  --preproc-dir ./pp-reddit-dir \
   --output-dir  ./metalwoz-retrieval-model \
   --eval-domain dialogues/ALARM_SET.txt --test-domain dialogues/EVENT_RESERVE.txt
 ```
@@ -190,12 +190,13 @@ specified in `test-spec-cross-task.txt`. This command
    `nlg-eval`.
 
 ```bash
-./scripts/baseline retrieval predict ./metalwoz-retrieval-model \
+./scripts/retrieval-baseline predict ./metalwoz-retrieval-model \
     ./pp-metalwoz-dir/metalwoz-v1-normed.zip \
     --test-spec test-spec-cross-task.txt --nlg-eval-out-dir ./out
 
 # calculate metrics (you need to install https://github.com/Maluuba/nlg-eval for that)
-nlg-eval --hypothesis ./output-cross-task/EVENT_RESERVE/hyp.txt --references output-cross-task/EVENT_RESERVE/ref.txt
+./scripts/evaluate ./pp-metalwoz-dir/metalwoz-v1-normed.zip \
+    test-spec-cross-task.txt ./out EVENT_RESERVE [other test domains...]
 ```
 
 Contributing

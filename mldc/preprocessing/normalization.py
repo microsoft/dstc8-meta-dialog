@@ -62,14 +62,13 @@ class MetalwozTextNormalizer(TextNormalizer):
 
     content = super().__call__(raw_content)
 
-    if False:
-      content = N.TIME_RGX.sub(N.TIME_TOKEN, content)
-      content = N.WEEKDAY_RGX.sub(N.WEEKDAY_TOKEN, content)
-      content = N.MONTH_RGX.sub(N.MONTH_TOKEN, content)
-      content = N.ORDINAL_RGX.sub(N.ORDINAL_TOKEN, content)
-      content = N.EMAIL_RGX.sub(N.EMAIL_TOKEN, content)
-      content = N.NUMBER_RGX.sub(N.NUMBER_TOKEN, content)
-      content = N.URL_RGX.sub(N.URL_TOKEN, content)
+    content = N.TIME_RGX.sub(N.TIME_TOKEN, content)
+    content = N.WEEKDAY_RGX.sub(N.WEEKDAY_TOKEN, content)
+    content = N.MONTH_RGX.sub(N.MONTH_TOKEN, content)
+    content = N.ORDINAL_RGX.sub(N.ORDINAL_TOKEN, content)
+    content = N.EMAIL_RGX.sub(N.EMAIL_TOKEN, content)
+    content = N.NUMBER_RGX.sub(N.NUMBER_TOKEN, content)
+    content = N.URL_RGX.sub(N.URL_TOKEN, content)
     content = N.WHITESPACE_RGX.sub(' ', content)
     content = content.strip()
 

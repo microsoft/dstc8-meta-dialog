@@ -3,18 +3,19 @@ from mldc import __version__
 
 
 INSTALL_REQUIRES = [
-  'torch==1.0',
-  'pydantic',
-  'sentencepiece',
-  'pytorch-pretrained-bert',
-  'fasttext',
-  'runstats',
-  'python-rapidjson',
-  'nltk',
-  'iterable-queue',
-  'fairseq @ git+https://github.com/pytorch/fairseq@v0.6.2',
-  'pytext-nlp @ git+https://github.com/facebookresearch/'
-  'pytext.git@8a73c72b0fa9296ee3e50479466df633c878742c'  # or /head if merge fails
+    'torch==1.0.1',
+    'pydantic',
+    'sentencepiece',
+    'pytorch-pretrained-bert',
+    'fasttext<=0.8.3',
+    'runstats',
+    'python-rapidjson',
+    'nltk',
+    'tabulate',
+    'iterable-queue',
+    'fairseq @ git+https://github.com/pytorch/fairseq@v0.6.2',
+    'pytext-nlp @ git+https://github.com/facebookresearch/'
+    'pytext.git@8a73c72b0fa9296ee3e50479466df633c878742c'
 ]
 
 
@@ -33,5 +34,6 @@ setup(
         dev=['pytest', 'pytest-flake8', 'flake8<3.6', 'flaky', 'pre-commit'],
     ),
     install_requires=INSTALL_REQUIRES,
-    tests_require=['pytest', 'pytest-flake8', 'flake8<3.6', 'flaky', 'pytest-env'],
+    tests_require=['pytest', 'pytest-flake8',
+                   'flake8<3.6', 'flaky', 'pytest-env'],
 )
