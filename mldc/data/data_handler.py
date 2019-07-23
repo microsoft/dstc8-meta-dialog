@@ -5,6 +5,7 @@ import os
 import torch
 import _pickle as pickle
 import warnings
+import logging
 from .batch import right_pad_fixed_shape
 
 from array import array
@@ -23,13 +24,16 @@ from torchtext import data as textdata
 from typing import Dict, Any, List, Type, Iterable, Optional, Union
 from fairseq.data.dictionary import Dictionary as FairseqDict
 from mldc.data.schema import MetaDlgDataDialog
-from mldc.preprocessing.stream import stream_dlgs
+from mldc.preprocessing.stream import stream_dlgs_many
 from mldc.preprocessing.featurizer import TokenIdFeaturizer
 from mldc.preprocessing.input_embedding import EmbedderInterface
 from torch import LongTensor
 from pydantic import BaseModel
 
 from mldc.data.batchqueue import BatchProcessor, BatchQueue
+
+
+LOG = logging.getLogger("mldc.data.data_handler")
 
 
 def ensure_random_state(random_state):
@@ -205,7 +209,10 @@ class DataIterator:
     """
     if self._meta_specs:
       # meta batches according taking dialogue ids from a file
-      return self._create_meta_batches_from_spec(self._meta_specs)
+      if self._support_batch_size > 0:
+        return self._create_meta_batches_from_spec(self._meta_specs)
+      else:
+        return self._create_batches_from_spec()
 
     if self._support_batch_size > 0:
       # create meta batches (>=1 domain, support set, target set)
@@ -216,6 +223,23 @@ class DataIterator:
       self._rng.shuffle(self._idx)
     # no bucketing for now
     return self.grouper(self._idx, self._batch_size, allow_incomplete=self._allow_incomplete)
+
+  def _create_batches_from_spec(self):
+    """
+    Creates batches for prediction from spec file, given no support set
+    i.e. zero-shot prediction
+    """
+    id2dlg = {dlg.dlg_id: i for i, dlg in enumerate(self._dataset)}
+    batches = []
+    for spec in self._meta_specs:
+      if spec.target_dlg not in id2dlg:
+        # only load batches which are part of the loaded dataset
+        continue
+      target_example = id2dlg[spec.target_dlg]
+      mb = MetaBatch([([], [target_example], spec.predict_turn)],
+                     max_n_turns=self.max_n_turns)
+      batches.append(mb)
+    return batches
 
   def _create_meta_batches_from_spec(self, meta_specs):
     """
@@ -301,10 +325,31 @@ class DataIterator:
     return meta_batches
 
   def _examples_to_batch(self, batch, max_n_turns):
+
+    def truncate_target(target_ex, predict_turn):
+      # cut off dialogue after predict_turn.
+      # downstream, we'll just predict the last one.
+      target_ex[0] = deepcopy(target_ex[0])
+
+      turns = getattr(target_ex[0], ModelInput.SEQ)[:predict_turn + 1]
+      setattr(target_ex[0], ModelInput.SEQ, turns)
+
+      turns = getattr(target_ex[0], ModelOutput.TOK)[:predict_turn + 1]
+      setattr(target_ex[0], ModelOutput.TOK, turns)
+
     if self._support_batch_size == 0:
-      return self._wrap_batch(
-        textdata.Batch([self._dataset[i] for i in batch if i is not None], self._dataset),
-        max_n_turns)
+      if self._meta_specs:
+        batch, = batch
+        _, ex, predict_turn = batch
+        ex = [self._dataset[i] for i in ex]
+        if predict_turn is not None:
+          truncate_target(ex, predict_turn)
+        return self._wrap_batch(textdata.Batch(ex, self._dataset), max_n_turns)
+
+      else:
+        return self._wrap_batch(
+          textdata.Batch([self._dataset[i] for i in batch if i is not None], self._dataset),
+          max_n_turns)
 
     mb = MetaBatch(max_n_turns=max_n_turns)
     for domain_batch in batch:
@@ -312,15 +357,7 @@ class DataIterator:
       support_ex = [self._dataset[i] for i in support_ex]
       target_ex = [self._dataset[i] for i in target_ex]
       if predict_turn is not None:
-        # cut off dialogue after predict_turn.
-        # downstream, we'll just predict the last one.
-        target_ex[0] = deepcopy(target_ex[0])
-
-        turns = getattr(target_ex[0], ModelInput.SEQ)[:predict_turn + 1]
-        setattr(target_ex[0], ModelInput.SEQ, turns)
-
-        turns = getattr(target_ex[0], ModelOutput.TOK)[:predict_turn + 1]
-        setattr(target_ex[0], ModelOutput.TOK, turns)
+        truncate_target(target_ex, predict_turn)
 
       mb.append((self._wrap_batch(textdata.Batch(support_ex, self._dataset), max_n_turns),
                  self._wrap_batch(textdata.Batch(target_ex, self._dataset), max_n_turns)))
@@ -339,7 +376,7 @@ class DataIterator:
 
   def __len__(self):
     """ Returns how many batches are in one pass of the dataset """
-    if self._support_batch_size == 0:
+    if self._support_batch_size == 0 and not self._meta_specs:
       # plain batches
       return self.n_batches(len(self._dataset.examples), self._batch_size, self._allow_incomplete)
     if self._meta_specs:
@@ -352,9 +389,8 @@ class DataIterator:
 
 class BPEField(RawField):
 
-  def __init__(self, text_embedder: EmbedderInterface, is_target=False, all_responses=False):
+  def __init__(self, text_embedder: EmbedderInterface, is_target=False):
     self.is_target = is_target
-    self.all_responses = all_responses    # if True, returns all responses of all dialogues
     self.meta = FieldMeta()
     self.meta.vocab_size = text_embedder.n_vocab
     self.meta.pad_token_idx = text_embedder.pad_idx  # This is set to 0 in SPM train
@@ -374,7 +410,7 @@ class BPEField(RawField):
     return self.meta
 
 
-class HREDBatchProcessor(BatchProcessor):
+class CustomBatchProcessor(BatchProcessor):
   """
   Runs in a separate thread and does some preprocessing on the example dialogues
 
@@ -385,8 +421,9 @@ class HREDBatchProcessor(BatchProcessor):
 
   """
 
-  def __init__(self, embedder_cfg: EmbedderInterface.Config, all_responses: bool = False,
-               fixed_n_turns: bool = False):
+  def __init__(self, embedder_cfg: EmbedderInterface.Config,
+               fixed_n_turns: bool = False,
+               all_responses: bool = False):
     # Common setup in the process for it's lifetime
     self.text_embedder = EmbedderInterface.from_config(embedder_cfg)
     self.pad_token_idx = self.text_embedder.pad_idx
@@ -401,12 +438,12 @@ class HREDBatchProcessor(BatchProcessor):
     Processes a batch. If it is a meta-batch, independently process support and target sets.
     """
     if isinstance(batch, (textdata.Batch, BatchLike)):
-      return self.process_batch_nometa(batch, self.fixed_n_turns)
+      return self.process_batch_nometa(batch, self.fixed_n_turns, False)
     meta_batch = MetaBatch(
       # support set, target set.
       # the target set may be fixed to predict the last turn available
       # and always predicts exactly one response.
-      [(self.process_batch_nometa(domain[0], False, True),
+      [(self.process_batch_nometa(domain[0], False, self.all_responses),
         self.process_batch_nometa(domain[1], self.fixed_n_turns, False)) for domain in batch],
       max_n_turns=getattr(batch, ModelInput.DLG_LEN)
     )
@@ -480,7 +517,7 @@ class HREDBatchProcessor(BatchProcessor):
 
     def make_batch_target_tensors(dlgs):
       padded_turns, _, n_words, _ = make_batch_tensors(dlgs, is_input=False)
-      if not self.all_responses:
+      if not all_responses:
         # remove turn dimension
         padded_turns = torch.squeeze(padded_turns, 1)
         n_words = torch.squeeze(n_words, 1)
@@ -509,15 +546,16 @@ class DialogueDataHandler(DataHandler):
     # sort_within_batch: bool = False
     max_turns: int = 12
     n_workers: int = 4
+    max_load_workers: int = 4
     seed: int = 42
-    all_responses: bool = False
     featurized_cache_dir: str = ''
     train_domains: List[str] = []
     eval_domains: List[str] = []
     test_domains: List[str] = []
     # dictates how many samples go to a process, and determines the lifetime of the process
     # make this larger for larger datasets
-    preproc_chunksize: int = 10000
+    preproc_chunksize: int = 1000
+    all_responses: bool = False
 
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -529,6 +567,7 @@ class DialogueDataHandler(DataHandler):
     # class)
     self.featurizer: TokenIdFeaturizer = kwargs['featurizer']
     self.n_workers: int = kwargs['n_workers']
+    self.max_load_workers: int = kwargs['max_load_workers']
 
   @classmethod
   def from_config(cls, config: Config,
@@ -544,7 +583,7 @@ class DialogueDataHandler(DataHandler):
     assert len(features)
 
     targets: Dict[str, Field] = {
-      ModelOutputConfig._name: BPEField(text_embedder, is_target=True, all_responses=config.all_responses),
+      ModelOutputConfig._name: BPEField(text_embedder, is_target=True),
     }
     extra_fields = {
       RAW_TEXT: RawField(),
@@ -629,11 +668,11 @@ class DialogueDataHandler(DataHandler):
     n_batches = len(diter)
 
     # enqueues BatchLike or a nested structure of BatchLike, because Batch is not pickleable
-    # HREDBatchProcessor produces the same.
+    # CustomBatchProcessor produces the same.
     bq = BatchQueue(
       diter,
       n_batches,
-      HREDBatchProcessor,
+      CustomBatchProcessor,
       n_workers=n_workers,
       qcap=3,
       embedder_cfg=self.text_embedder_cfg,
@@ -673,7 +712,8 @@ class DialogueDataHandler(DataHandler):
       featurized_data = TokenIdFeaturizer.parallel_featurize_batch(
         data,
         text_embedder_cfg=self.text_embedder_cfg,
-        chunksize=self.preproc_chunksize
+        chunksize=self.preproc_chunksize,
+        max_workers=self.max_load_workers,
       )
       if featurized_path:
         with open(featurized_path, 'wb') as f:
@@ -697,11 +737,13 @@ class DialogueDataHandler(DataHandler):
 
     return textdata.Dataset(examples, to_process)
 
-  def gen_dataset_from_path(self, path: str, include_label_fields: bool = True, use_cache: bool = True, domains: List = []):
+  def gen_dataset_from_path(self, path: str, include_label_fields: bool = True, use_cache: bool = True, domains: List = [],
+                            batch_size=None, support_batch_size=None):
     """
     load from json instead of csv
     """
 
+    LOG.debug("Generating dataset from path: %s, domains: %s", path, ', '.join(tuple(domains[:3]) + ('...',)))
     featurized_path = ''
     if self.featurized_cache_dir:
       os.makedirs(self.featurized_cache_dir, exist_ok=True)
@@ -709,16 +751,22 @@ class DialogueDataHandler(DataHandler):
       feathash = md5(f"{path}'-'{'-'.join(sorted(domains))}".encode('utf-8')).hexdigest()
       featurized_path = os.path.join(self.featurized_cache_dir, feathash + '.pkl')
 
+    min_domain_size = None
+    if support_batch_size:
+      min_domain_size = batch_size + support_batch_size
+
     if not domains:
       raise RuntimeError(f'No files specified in .zip archive {path}!')
 
     data_key = f"{path}/{','.join(sorted(domains))}"
     if use_cache and data_key in self._data_cache:
+      LOG.debug("Found existing cache, loading from there.")
       return self._data_cache[data_key]
 
-    dlgs = itertools.chain(*[stream_dlgs(path, domains) for domains in domains])
+    dlgs = stream_dlgs_many(path, domains, min_domain_size=min_domain_size)
     res = self.gen_dataset(dlgs, include_label_fields=include_label_fields, featurized_path=featurized_path)
     self._data_cache[data_key] = res
+    LOG.debug("Done loading dataset")
     return res
 
   def get_train_iter_from_path(
@@ -726,7 +774,8 @@ class DialogueDataHandler(DataHandler):
       **kwargs
   ) -> BatchIterator:
     return self._get_batch_iter(
-      self.gen_dataset_from_path(train_path, domains=domains),
+      self.gen_dataset_from_path(train_path, domains=domains, batch_size=batch_size,
+                                 support_batch_size=kwargs.get('support_batch_size')),
       batch_size, rank=rank, world_size=world_size, n_workers=self.n_workers, **kwargs)
 
   def get_eval_iter_from_path(
@@ -734,7 +783,8 @@ class DialogueDataHandler(DataHandler):
       **kwargs
   ) -> BatchIterator:
     return self._get_batch_iter(
-      self.gen_dataset_from_path(eval_path, domains=domains),
+      self.gen_dataset_from_path(eval_path, domains=domains, batch_size=batch_size,
+                                 support_batch_size=kwargs.get('support_batch_size')),
       batch_size, rank=rank, world_size=world_size, n_workers=self.n_workers, **kwargs)
 
   def get_test_iter_from_path(

@@ -1,15 +1,34 @@
+import logging
 import numpy as np
+import sys
 
-from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from itertools import chain, islice, tee
-from multiprocessing import cpu_count
+from concurrent.futures import ProcessPoolExecutor
+from itertools import chain, islice
 
 from mldc.data.schema import MetaDlgDataDialog
 from pytext.config.component import Component, ComponentType, ConfigBase
 from typing import Sequence
+from tqdm import tqdm
 
 from mldc.preprocessing.input_embedding import EmbedderInterface
+from mldc.util import TqdmToLogger
+
+
+LOG = logging.getLogger('mldc.preprocessing.featurizer')
+INIT_DONE = False
+
+
+def no_progress():
+  """
+  determines if we want to see progressbars in the output
+
+  do not show progress bars if:
+  - if we aren't on an interactive terminal or
+  - the user wants verbose logging
+  """
+  return False
+  return not sys.stdout.isatty()
 
 
 class OutputRecord:
@@ -57,18 +76,25 @@ class TokenIdFeaturizer(Component):
   @classmethod
   def _featurize_worker(
     cls,
-    config: Config,
-    batch: Sequence[MetaDlgDataDialog],
+    config,
     text_embedder_cfg,
-    feature_config
+    feature_config,
+    batch: Sequence[MetaDlgDataDialog],
   ) -> Sequence[OutputRecord]:
-    return cls(config, feature_config, text_embedder_cfg).featurize_batch(batch)
+    # init/initargs isn't supported in python 3.6 yet, so we emulate it here
+    global FEATURIZER, INIT_DONE
+    if not INIT_DONE:
+      FEATURIZER = cls(config, text_embedder_config=text_embedder_cfg, feature_config=feature_config)
+      INIT_DONE = True
+    if not len(batch):
+      return []
+    return FEATURIZER.featurize_batch(batch)
 
   @classmethod
   def parallel_featurize_batch(
     cls,
     batch: Sequence[MetaDlgDataDialog],
-    max_workers=cpu_count(),
+    max_workers=4,
     chunksize: int = 1000,
     text_embedder_cfg: EmbedderInterface.Config = None,
     feature_config=None
@@ -80,19 +106,32 @@ class TokenIdFeaturizer(Component):
     def split_iterator(iterator, chunksize=chunksize):
       iterator = iter(iterator)
       while True:
-        # TODO: iterator copying might be more expensive than just realizing the whole iterator as a list
-        islice_orig, islice_copy = tee(islice(iterator, chunksize))
-        if not tuple(islice_copy):
+        chunk = tuple(islice(iterator, chunksize))
+        if not chunk:
           return
-        yield islice_orig
+        yield chunk
 
-    featurize_func = partial(cls._featurize_worker, config, text_embedder_cfg=text_embedder_cfg,
-                             feature_config=feature_config)
+    worker = partial(cls._featurize_worker, config, text_embedder_cfg, feature_config)
+
+    LOG.debug("featurizing data with %d workers", max_workers)
+    tqdm_out = TqdmToLogger(LOG, level=logging.INFO)
     if max_workers > 1:
       with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        featurized_lol = executor.map(featurize_func, split_iterator(batch))
+        featurized_lol, futures = [], []
+        with tqdm(unit=" chunks", desc="Loading dialogues in chunks of size %d" % chunksize, disable=no_progress(),
+                  file=tqdm_out, mininterval=30) as bar:
+          chunks = iter(split_iterator(batch))
+          for chunk in chunks:
+            bar.update(1)
+            futures += executor.submit(worker, chunk),
+        for future in tqdm(futures, unit=" chunks", desc="Processing dialogues in chunks of size %d" % chunksize,
+                           disable=no_progress(), file=tqdm_out, mininterval=30):
+            featurized_lol.append(future.result())
     else:
-      featurized_lol = [featurize_func(b) for b in split_iterator(batch)]
+      featurized_lol = [worker(b) for b in split_iterator(batch)]
+      # clear the INIT flag for next time this is called
+      global INIT_DONE
+      INIT_DONE = False
 
     # merge the results back into a single iterator
     return chain(*featurized_lol)

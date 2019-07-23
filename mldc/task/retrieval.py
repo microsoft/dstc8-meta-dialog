@@ -21,10 +21,8 @@ from mldc.trainer.retrieval import RetrievalTrainer
 from mldc.metrics.metrics import MetaLearnMetricReporter
 from mldc.preprocessing.input_embedding import EmbedderInterface
 
-from .base import BeamsToTextFormatting
 
-
-class RetrievalTask(BeamsToTextFormatting, Task):
+class RetrievalTask(Task):
   class Config(ConfigBase):
     model: RetrievalModel.Config = RetrievalModel.Config()
     trainer: RetrievalTrainer.Config = RetrievalTrainer.Config(

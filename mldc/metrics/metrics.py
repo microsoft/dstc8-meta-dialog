@@ -1,5 +1,6 @@
 import torch
 import logging
+import os
 from collections import defaultdict
 from typing import Dict
 from pytext.config.pytext_config import ConfigBase
@@ -46,7 +47,7 @@ class MetaLearnMetricReporter(MetricReporter):
 
   def __init__(self, config, metadata, text_embedder: EmbedderInterface.Config):
     super().__init__(channels=[
-      C.TensorBoardChannel(SummaryWriter(config.output_path)),
+      C.TensorBoardChannel(SummaryWriter(os.path.join(config.output_path, 'logs'))),
       C.ConsoleChannel()])
     self.text_embedder = EmbedderInterface.from_config(text_embedder)
     self._reset()

@@ -3,6 +3,7 @@ import torch
 import fasttext
 import functools
 import numpy as np
+import logging
 
 import pytext.utils.cuda_utils as cuda_utils
 
@@ -17,6 +18,7 @@ from torch.multiprocessing import Lock
 
 
 MODEL_DOWNLOAD_LOCK = Lock()
+LOG = logging.getLogger("mldc.preprocessing.input_embedding")
 
 
 def run_model(model, inputs, layer):
@@ -300,7 +302,7 @@ class BERTEmbed(EmbedderInterface):
 
   def embed_ids_batch(self, ids: np.array) -> torch.tensor:
     """embeds a whole batch at once"""
-    ids = torch.tensor(ids)
+    ids = torch.LongTensor(ids)
     with torch.no_grad():
       if cuda_utils.CUDA_ENABLED and self.use_cuda_if_available:
         ids = ids.cuda()
@@ -314,7 +316,7 @@ class BERTEmbed(EmbedderInterface):
     In other words, SentencePiece isn't isomorphic with respect to the string representation.
     """
     ids = [id for id in ids if id not in (self.pad_idx, self.eos_idx, self.bos_idx)]
-    ids = torch.tensor(ids)
+    ids = torch.LongTensor(ids)
     with torch.no_grad():
       if cuda_utils.CUDA_ENABLED and self.use_cuda_if_available:
         ids = ids.cuda()
@@ -344,9 +346,15 @@ class SentencepieceFasttextEmbed(EmbedderInterface):
     self.bos_token = self.spm.IdToPiece(self.bos_idx)
     self.eos_idx = self.spm.eos_id()
     self.eos_token = self.spm.IdToPiece(self.eos_idx)
+    self.fasttext_model_file = fasttext_model_file
+    self._fasttext = None
 
-    if fasttext_model_file:
-      self.fasttext = fasttext.load_model(fasttext_model_file)
+  @property
+  def fasttext(self):
+    if self._fasttext is None and self.fasttext_model_file:
+      LOG.info("Loading fasttext embeddings from %s", self.fasttext_model_file)
+      self._fasttext = fasttext.load_model(self.fasttext_model_file)
+    return self._fasttext
 
   @property
   def embed_dim(self):
@@ -435,9 +443,9 @@ class SentencepieceFasttextEmbed(EmbedderInterface):
     """
     return [self.embed_tok(t) for t in self.decode_ids_as_tokens(ids, strip_special=strip_special)]
 
-  def embed_ids_batch(self, ids: np.array) -> torch.tensor:
+  def embed_ids_batch(self, ids: np.array) -> torch.FloatTensor:
     emb = [self.embed_ids(turn, strip_special=False) for turn in ids]
-    emb = torch.tensor(emb)
+    emb = torch.FloatTensor(emb)
     return emb
 
 
