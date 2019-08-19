@@ -107,8 +107,8 @@ class RetrievalTask(Task):
     with ExitStack() as stack:
       train_iter = None
       if self.model_needs_meta_training:
-        train_iter = self.data_handler.get_train_iter(
-          stack.enter_context(closing(train_iter)))
+        train_iter = self.data_handler.get_train_iter()
+        stack.enter_context(closing(train_iter))
       eval_iter = self.data_handler.get_eval_iter(repeat=False)
       stack.enter_context(closing(eval_iter))
       return self.trainer.train(
