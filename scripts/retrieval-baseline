@@ -12,6 +12,7 @@ from zipfile import ZipFile
 from pytext.config.component import register_tasks
 from pytext.config.serialize import parse_config
 from pytext.main import gen_config_impl, train_model, load
+from pytext.workflow import _set_cuda
 from tensorboardX import SummaryWriter
 from textwrap import TextWrapper
 
@@ -107,7 +108,13 @@ def predict_retrieval(model_path, zipfile, test_spec, test_domains, nlg_eval_out
   if not os.path.exists(final_model):
     raise RuntimeError(f"No model found in {model_path}!")
 
+  # use cuda if available. unlike `train_model`, this is not set automatically with `load`
+  device_id = 0
+  world_size = 1
+  _set_cuda(True, device_id, world_size)
+
   task, _ = load(final_model)
+
   if not test_domains:
     test_domains = [f for f in ZipFile(zipfile, 'r').namelist() if f.startswith('dialogues/')]
 
