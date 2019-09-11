@@ -109,7 +109,7 @@ def predict_retrieval(model_path, zipfile, test_spec, test_domains, nlg_eval_out
 
   task, _ = load(final_model)
   if not test_domains:
-    test_domains = task.data_handler.test_domains
+    test_domains = [f for f in ZipFile(zipfile, 'r').namelist() if f.startswith('dialogues/')]
 
   for test_domain in test_domains:
     with NLGEvalOutput(nlg_eval_out_dir, test_domain) as nlgeval:
