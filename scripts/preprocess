@@ -164,18 +164,20 @@ def do_pipeline(rawzip, outdir, normalizer_cls, members_for_train=[]):
 @cli.command('reddit')
 @click.argument('rawzip', type=click.Path(dir_okay=False, file_okay=True, exists=True))
 @click.argument('outdir')
-def reddit(rawzip, outdir):
+@click.option('--prefix', '-p', default='dialogues/training/')
+def reddit(rawzip, outdir, prefix):
   with ZipFile(rawzip, 'r') as zf:
-    members_for_training = [p for p in zf.namelist() if p.startswith('dialogues/training/')]
+    members_for_training = [p for p in zf.namelist() if p.startswith(prefix)]
   do_pipeline(rawzip, outdir, RedditTextNormalizer, members_for_training)
 
 
 @cli.command('metalwoz')
 @click.argument('rawzip', type=click.Path(dir_okay=False, file_okay=True, exists=True))
 @click.argument('outdir')
-def metalwoz(rawzip, outdir):
+@click.option('--prefix', '-p', default='dialogues/')
+def metalwoz(rawzip, outdir, prefix):
   with ZipFile(rawzip, 'r') as zf:
-    members_for_training = [p for p in zf.namelist() if p.startswith('dialogues')]
+    members_for_training = [p for p in zf.namelist() if p.startswith(prefix)]
   do_pipeline(rawzip, outdir, MetalwozTextNormalizer, members_for_training)
 
 
