@@ -92,6 +92,11 @@ def main(ground_truth_zip, results_dir, test_spec, domains, verbose, all_metrics
 
     results_all_domains = {}
     with zipfile.ZipFile(ground_truth_zip) as gt_f:
+        if not len(domains):
+            rgx = re.compile(r'dialogues/(.*?)\.txt')
+            domains = [rgx.search(p).group(1) for p in gt_f.namelist() \
+                if 'tasks' not in os.path.basename(p) and p.startswith('dialogues')]
+
         for domain in domains:
             LOG.info("processing domain %s", domain)
             gt_filename_in_zip = "dialogues/" + domain + ".txt"
