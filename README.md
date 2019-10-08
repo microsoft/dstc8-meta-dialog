@@ -4,8 +4,13 @@ DSTC8 Meta-Learning User Response Models Task
 Competition Info
 --------------
 
-### [2019-07-12] Our competition host Codalab is experiencing an outage.
-### [2019-07-15] Our competition host Codalab is back online, registrations are open again. Note if you registered before July 15, 2019 you will have to re-register, we apologize for the inconvenience.
+
+- [2019-10-07] **Submission deadline has been extended to Sunday October 13, 2019 at 11:59 pm Pacific Daylight Time (PDT)**
+- [2019-09-24] Submission format details posted on the [evaluation page](https://competitions.codalab.org/competitions/20152#learn_the_details-evaluation).
+- [2019-09-23] Evaluation data is posted. See the [evaluation](https://competitions.codalab.org/competitions/20152#learn_the_details-evaluation) and [data](https://competitions.codalab.org/competitions/20152#participate) pages for details.
+- [2019-07-15] Codalab competition is back online. **Due to a major outage in the Codalab platform, participants who registered before July 12, 2019 must re-register.**
+- [2019-06-17] Task description and data are released.
+- [2019-06-10] Registration is Open! Registrants will be approved starting June 17, and will have access to the data then.
 
 Please sign up for the competition on our [CodaLab](https://aka.ms/dstc8-task2) page, which also contains further details on the timeline, organizers, and terms and conditions.
 
