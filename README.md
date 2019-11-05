@@ -4,7 +4,7 @@ DSTC8 Meta-Learning User Response Models Task
 Competition Info
 --------------
 
-- [2019-11-05] Human evaluation results available, see the [official DSTC 8 spreadsheet](https://docs.google.com/spreadsheets/d/1KxbD6Dlx5M0J82_8ty4b9A7snhinAashZcLVJOhySbk/). Full rankings per testset, dialogue, and metric are available [here](https://github.com/microsoft/dstc8-meta-dialog/blob/human-eval-results/competition/human_evaluation/full_rankings.csv).
+- [2019-11-05] Human evaluation results available, see the [official DSTC 8 spreadsheet](https://docs.google.com/spreadsheets/d/1KxbD6Dlx5M0J82_8ty4b9A7snhinAashZcLVJOhySbk/). Full rankings per testset, dialogue, and metric are available [here](https://github.com/microsoft/dstc8-meta-dialog/blob/master/competition/human_evaluation/full_rankings.csv).
 - [2019-10-07] **Submission deadline has been extended to Sunday October 13, 2019 at 11:59 pm Pacific Daylight Time (PDT)**
 - [2019-09-24] Submission format details posted on the [evaluation page](https://competitions.codalab.org/competitions/20152#learn_the_details-evaluation).
 - [2019-09-23] Evaluation data is posted. See the [evaluation](https://competitions.codalab.org/competitions/20152#learn_the_details-evaluation) and [data](https://competitions.codalab.org/competitions/20152#participate) pages for details.
