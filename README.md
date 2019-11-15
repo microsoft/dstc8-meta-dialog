@@ -4,7 +4,8 @@ DSTC8 Meta-Learning User Response Models Task
 Competition Info
 --------------
 
-- [2019-11-05] Human evaluation results available, see the [official DSTC 8 spreadsheet](https://docs.google.com/spreadsheets/d/1KxbD6Dlx5M0J82_8ty4b9A7snhinAashZcLVJOhySbk/). Full rankings per testset, dialogue, and metric are available [here](https://github.com/microsoft/dstc8-meta-dialog/blob/master/competition/human_evaluation/full_rankings.csv).
+- [2019-11-15] Full human evaluation data and script to reproduce results are available [here](https://github.com/microsoft/dstc8-meta-dialog/blob/master/competition/human_evaluation/). See <a href="#human-evaluation-results">this section for details</a>.
+- [2019-11-05] Human evaluation results available, see the [official DSTC 8 spreadsheet](https://docs.google.com/spreadsheets/d/1KxbD6Dlx5M0J82_8ty4b9A7snhinAashZcLVJOhySbk/edit#gid=173123261). Full rankings per testset, dialogue, and metric are available [here](https://github.com/microsoft/dstc8-meta-dialog/blob/master/competition/human_evaluation/data/full_rankings.csv).
 - [2019-10-07] **Submission deadline has been extended to Sunday October 13, 2019 at 11:59 pm Pacific Daylight Time (PDT)**
 - [2019-09-24] Submission format details posted on the [evaluation page](https://competitions.codalab.org/competitions/20152#learn_the_details-evaluation).
 - [2019-09-23] Evaluation data is posted. See the [evaluation](https://competitions.codalab.org/competitions/20152#learn_the_details-evaluation) and [data](https://competitions.codalab.org/competitions/20152#participate) pages for details.
@@ -202,6 +203,20 @@ specified in `test-spec-cross-task.txt`. This command
 # calculate metrics (you need to install https://github.com/Maluuba/nlg-eval for that)
 ./scripts/evaluate ./pp-metalwoz-dir/metalwoz-v1-normed.zip \
     test-spec-cross-task.txt ./out EVENT_RESERVE [other test domains...]
+```
+
+<a id="human-evaluation-results"></a>Human Evaluation Results
+------------------------
+
+Full judgements collected through Amazon Mechanical Turk and a script to produce the rankings are available in [competition/human_evaluation](https://github.com/microsoft/dstc8-meta-dialog/blob/master/competition/human_evaluation).
+
+Data in the [competition/human_evaluation/data](https://github.com/microsoft/dstc8-meta-dialog/blob/master/competition/human_evaluation/data/) folder is licensed separately under the Microsoft [Open Use Of Data Agreement](https://github.com/microsoft/dstc8-meta-dialog/blob/master/competition/human_evaluation/data/O-UDA-1.0.pdf).
+
+To reproduce the competition results, run the script as follows:
+
+```bash
+$ cd competition/human_evaluation
+$ ./human-evaluation-results.py data/judgements_data.csv
 ```
 
 Contributing
