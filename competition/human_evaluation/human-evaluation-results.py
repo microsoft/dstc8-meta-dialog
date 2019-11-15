@@ -8,6 +8,8 @@ import pandas as pd
 from collections import Counter, defaultdict
 from copy import deepcopy
 
+# IMPORTANT: this seed cannot be altered!
+# It was used for data collection and thus affects the order in which quicksorts are performed in the Just-Sort-It algorithm.
 SEED = 2019
 LOG = logging.getLogger('results')
 TESTSETS = ['pure', 'cross']
@@ -160,7 +162,8 @@ def determine_win_counts(df):
 
 @click.command()
 @click.argument('judgements_csv', type=click.Path(exists=True))
-@click.option('-d', '--rankings-dump-csv', default=None)
+@click.option('-d', '--rankings-dump-csv', default=None,
+              help='If specified, all rankings per dialogue are dumped to this CSV filepath')
 def main(judgements_csv, rankings_dump_csv):
   """./human-evaluation-results.py data/judgements_data.csv -d data/full_rankings.csv"""
   judgements_df = pd.read_csv(judgements_csv)
