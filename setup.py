@@ -1,9 +1,9 @@
-from setuptools import setup
-from mldc import __version__
+from setuptools import find_packages, setup
 
+_VERSION = '0.1.0'
 
 INSTALL_REQUIRES = [
-    'torch==1.0.1',
+    'torch>=1.0.1',
     'pydantic',
     'sentencepiece',
     'pytorch-pretrained-bert',
@@ -22,13 +22,12 @@ INSTALL_REQUIRES = [
 setup(
     name='mldc',
     description='meta-learning baseline for dstc8 meta-learning challenge',
-    # url='https://XXXXXXX/',
-    # author='????',
-    version=__version__,
-    py_modules=['mldc'],
+    url='https://github.com/microsoft/dstc8-meta-dialog/',
+    author='Hannes Schulz and Adam Atkinson, [first].[last]@microsoft.com',
+    version=_VERSION,
     python_requires='>=3.4',
     setup_requires=['pytest-runner'],
-    packages=['mldc'],
+    packages=find_packages(),
     include_package_data=True,
     extras_require=dict(
         dev=['pytest', 'pytest-flake8', 'flake8<3.6', 'flaky', 'pre-commit'],
